@@ -855,7 +855,10 @@ export class CanvasServer {
 
     server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const { name, arguments: args } = request.params;
-      return handleToolCall(name, args);
+      const result = await handleToolCall(name, args);
+      // Refresh canvas for any MCP request (including read-only tools)
+      this.broadcastCanvasSync();
+      return result;
     });
 
     return server;
