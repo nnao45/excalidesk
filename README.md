@@ -41,6 +41,33 @@ curl -s http://localhost:3100/mcp \\
   -d '{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"create_element\",\"arguments\":{\"type\":\"rectangle\",\"x\":50,\"y\":50,\"width\":120,\"height\":80}}}'
 ```
 
+### Claude Code から接続する
+
+`npm run dev` でアプリを起動し、右上の `MCP` パネルで `起動` を押したあとに、Claude Code で HTTP MCP サーバーとして追加します。
+
+```bash
+claude mcp add --transport http excalidesk http://localhost:3100/mcp
+```
+
+接続確認:
+
+```bash
+claude mcp list
+```
+
+プロジェクト共有用に `.mcp.json` へ入れる場合の例:
+
+```json
+{
+  "mcpServers": {
+    "excalidesk": {
+      "type": "http",
+      "url": "http://localhost:3100/mcp"
+    }
+  }
+}
+```
+
 ### MCPツール一覧
 
 `tools/list` で全ツールを取得できます。  
