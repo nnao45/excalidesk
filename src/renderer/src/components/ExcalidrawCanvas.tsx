@@ -180,13 +180,14 @@ export function ExcalidrawCanvas({ selectedFile, mcpEnabled = false, mcpPort = 3
         });
       }
     }, [mcpPort]),
-    onMermaidConvert: useCallback(async ({ mermaidDiagram }) => {
+    onMermaidConvert: useCallback(async ({ requestId, mermaidDiagram }) => {
       if (!excalidrawAPIRef.current) return;
       try {
         const result = await parseMermaidToExcalidraw(mermaidDiagram);
         const api = excalidrawAPIRef.current;
         const current = api.getSceneElements();
-        const elements = [...current, ...(result.elements ?? [])];
+        const newElements = result.elements ?? [];
+        const elements = [...current, ...newElements];
         api.updateScene({
           elements,
           commitToHistory: true,
@@ -194,10 +195,30 @@ export function ExcalidrawCanvas({ selectedFile, mcpEnabled = false, mcpPort = 3
         const appState = api.getAppState();
         const files = api.getFiles();
         sendSyncRef.current({ elements, appState: sanitizeAppState(appState) as AppState, files });
+
+        // ポーリング機構: 変換結果をサーバーに返す
+        if (requestId) {
+          await fetch(`http://localhost:${mcpPort}/api/elements/from-mermaid/result`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ requestId, elements: newElements }),
+          });
+        }
       } catch (err) {
         console.error("Mermaid conversion failed:", err);
+        // エラーもサーバーに通知
+        if (requestId) {
+          await fetch(`http://localhost:${mcpPort}/api/elements/from-mermaid/result`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              requestId,
+              error: err instanceof Error ? err.message : String(err),
+            }),
+          });
+        }
       }
-    }, [sanitizeAppState]),
+    }, [sanitizeAppState, mcpPort]),
   });
 
   useEffect(() => {

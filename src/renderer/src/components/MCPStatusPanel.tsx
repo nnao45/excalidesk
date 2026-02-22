@@ -13,6 +13,7 @@ export function MCPStatusPanel({ onClose, onStatusChange }: MCPStatusPanelProps)
   const [isStarting, setIsStarting] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [copiedConfig, setCopiedConfig] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
 
   const fetchStatus = useCallback(async () => {
@@ -88,6 +89,40 @@ export function MCPStatusPanel({ onClose, onStatusChange }: MCPStatusPanelProps)
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }, [mcpUrl]);
+
+  const handleCopyDesktopConfig = useCallback(async () => {
+    if (!status) return;
+    // HTTP (Streamable HTTP) transport 設定
+    const config = {
+      mcpServers: {
+        excalidesk: {
+          url: `http://localhost:${status.port}/mcp`,
+        },
+      },
+    };
+    await navigator.clipboard.writeText(JSON.stringify(config, null, 2));
+    setCopiedConfig(true);
+    setTimeout(() => setCopiedConfig(false), 2000);
+  }, [status]);
+
+  const handleCopyCommandConfig = useCallback(async () => {
+    if (!status?.mcpServerPath) return;
+    // stdio (command) transport 設定
+    const config = {
+      mcpServers: {
+        excalidesk: {
+          command: "node",
+          args: [status.mcpServerPath],
+          env: {
+            CANVAS_SERVER_URL: `http://localhost:${status.port}`,
+          },
+        },
+      },
+    };
+    await navigator.clipboard.writeText(JSON.stringify(config, null, 2));
+    setCopiedConfig(true);
+    setTimeout(() => setCopiedConfig(false), 2000);
+  }, [status]);
 
   const running = status?.running ?? false;
 
@@ -173,6 +208,31 @@ export function MCPStatusPanel({ onClose, onStatusChange }: MCPStatusPanelProps)
             </button>
           )}
         </div>
+
+        {/* Claude Desktop Config コピー (稼働中のみ) */}
+        {running && (
+          <div className="mcp-field-col">
+            <button
+              className="mcp-copy-config-button"
+              onClick={handleCopyDesktopConfig}
+              title="HTTP transport 設定をコピー (推奨)"
+            >
+              {copiedConfig ? <Check size={14} /> : <Copy size={14} />}
+              {copiedConfig ? "コピー済み" : "HTTP Config をコピー"}
+            </button>
+            {status?.mcpServerPath && (
+              <button
+                className="mcp-copy-config-button"
+                style={{ marginTop: 4 }}
+                onClick={handleCopyCommandConfig}
+                title="stdio (command) transport 設定をコピー"
+              >
+                <Copy size={14} />
+                stdio Config をコピー
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

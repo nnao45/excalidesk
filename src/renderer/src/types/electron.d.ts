@@ -13,6 +13,8 @@ export interface MCPStatus {
   running: boolean;
   port: number;
   clients: number;
+  stdioRunning: boolean;
+  mcpServerPath: string | null;
 }
 
 export interface MCPStartResult {

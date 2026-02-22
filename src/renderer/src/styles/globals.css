@@ -1272,3 +1272,23 @@ body,
 .mcp-button--stop:hover:not(:disabled) {
   opacity: 0.85;
 }
+
+.mcp-copy-config-button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.mcp-copy-config-button:hover {
+  background: var(--color-hover);
+  color: var(--color-text);
+}

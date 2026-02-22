@@ -257,6 +257,14 @@ const DistributeElementsSchema = z.object({
 
 const QuerySchema = z.object({
   type: z.enum(Object.values(EXCALIDRAW_ELEMENT_TYPES) as [ExcalidrawElementType, ...ExcalidrawElementType[]]).optional(),
+  types: z.array(z.string()).optional(),
+  textContains: z.string().optional(),
+  minWidth: z.number().optional(),
+  maxWidth: z.number().optional(),
+  minHeight: z.number().optional(),
+  maxHeight: z.number().optional(),
+  strokeColor: z.string().optional(),
+  backgroundColor: z.string().optional(),
   filter: z.record(z.any()).optional()
 });
 
@@ -432,17 +440,34 @@ export const tools: Tool[] = [
   },
   {
     name: 'query_elements',
-    description: 'Query Excalidraw elements with optional filters',
+    description: 'Query Excalidraw elements with optional filters. Supports composite filtering by type, size range, color, and text content.',
     inputSchema: {
       type: 'object',
       properties: {
-        type: { 
-          type: 'string', 
-          enum: Object.values(EXCALIDRAW_ELEMENT_TYPES) 
+        type: {
+          type: 'string',
+          enum: Object.values(EXCALIDRAW_ELEMENT_TYPES),
+          description: 'Filter by a single element type'
         },
-        filter: { 
+        types: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Filter by multiple element types (e.g., ["rectangle", "ellipse"])'
+        },
+        textContains: {
+          type: 'string',
+          description: 'Partial text match (case-insensitive) against element text or label'
+        },
+        minWidth: { type: 'number', description: 'Minimum element width (inclusive)' },
+        maxWidth: { type: 'number', description: 'Maximum element width (inclusive)' },
+        minHeight: { type: 'number', description: 'Minimum element height (inclusive)' },
+        maxHeight: { type: 'number', description: 'Maximum element height (inclusive)' },
+        strokeColor: { type: 'string', description: 'Exact stroke color match (e.g., "#1e1e1e")' },
+        backgroundColor: { type: 'string', description: 'Exact background color match (e.g., "#a5d8ff")' },
+        filter: {
           type: 'object',
-          additionalProperties: true
+          additionalProperties: true,
+          description: 'Generic exact-match key-value filter for any element property'
         }
       }
     }
@@ -874,8 +899,8 @@ export async function handleToolCall(name: string, args: unknown) {
           version: 1
         };
 
-        // For bound arrows without explicit points, set a default
-        if ((startElementId || endElementId) && !elementProps.points) {
+        // arrow/line は points が必須 — 未設定のものをすべて補完
+        if ((element.type === 'arrow' || element.type === 'line') && !elementProps.points) {
           (element as any).points = [[0, 0], [100, 0]];
         }
 
@@ -964,29 +989,40 @@ export async function handleToolCall(name: string, args: unknown) {
       
       case 'query_elements': {
         const params = QuerySchema.parse(args || {});
-        const { type, filter } = params;
-        
+        const {
+          type, types, textContains,
+          minWidth, maxWidth, minHeight, maxHeight,
+          strokeColor, backgroundColor,
+          filter
+        } = params;
+
         try {
-          // Build query parameters
           const queryParams = new URLSearchParams();
           if (type) queryParams.set('type', type);
+          if (types?.length) queryParams.set('types', types.join(','));
+          if (textContains) queryParams.set('textContains', textContains);
+          if (minWidth !== undefined) queryParams.set('minWidth', String(minWidth));
+          if (maxWidth !== undefined) queryParams.set('maxWidth', String(maxWidth));
+          if (minHeight !== undefined) queryParams.set('minHeight', String(minHeight));
+          if (maxHeight !== undefined) queryParams.set('maxHeight', String(maxHeight));
+          if (strokeColor) queryParams.set('strokeColor', strokeColor);
+          if (backgroundColor) queryParams.set('backgroundColor', backgroundColor);
           if (filter) {
             Object.entries(filter).forEach(([key, value]) => {
               queryParams.set(key, String(value));
             });
           }
-          
-          // Query elements from HTTP server
+
           const url = `${EXPRESS_SERVER_URL}/api/elements/search?${queryParams}`;
           const response = await fetch(url);
-          
+
           if (!response.ok) {
             throw new Error(`HTTP server error: ${response.status} ${response.statusText}`);
           }
-          
+
           const data = await response.json() as ApiResponse;
           const results = data.elements || [];
-          
+
           return {
             content: [{ type: 'text', text: JSON.stringify(results, null, 2) }]
           };
@@ -1331,16 +1367,17 @@ export async function handleToolCall(name: string, args: unknown) {
             throw new Error(`HTTP server error: ${response.status} ${response.statusText}`);
           }
 
-          const result = await response.json() as ApiResponse;
-          
-          logger.info('Mermaid diagram sent to frontend for conversion', {
-            success: result.success
+          const result = await response.json() as ApiResponse & { elements?: ServerElement[]; count?: number };
+
+          logger.info('Mermaid diagram converted via frontend', {
+            success: result.success,
+            elementCount: result.count
           });
 
           return {
             content: [{
               type: 'text',
-              text: `Mermaid diagram sent for conversion!\n\n${JSON.stringify(result, null, 2)}\n\n⚠️  Note: The actual conversion happens in the frontend canvas with DOM access. Open the canvas at ${EXPRESS_SERVER_URL} to see the diagram rendered.`
+              text: `Mermaid diagram converted successfully!\n${result.count ?? 0} elements created on canvas.\n\n${JSON.stringify(result, null, 2)}\n\n✅ Elements synced to canvas`
             }]
           };
         } catch (error) {
@@ -1369,8 +1406,8 @@ export async function handleToolCall(name: string, args: unknown) {
             version: 1
           };
 
-          // For bound arrows without explicit points, set a default
-          if ((startElementId || endElementId) && !elementProps.points) {
+          // arrow/line は points が必須 — 未設定のものをすべて補完
+          if ((element.type === 'arrow' || element.type === 'line') && !elementProps.points) {
             (element as any).points = [[0, 0], [100, 0]];
           }
 

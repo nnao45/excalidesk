@@ -45,6 +45,7 @@ interface UseCanvasSyncOptions {
     offsetY?: number;
   }) => void;
   onMermaidConvert?: (payload: {
+    requestId: string;
     mermaidDiagram: string;
     config?: Record<string, unknown>;
   }) => void;
@@ -100,6 +101,7 @@ export function useCanvasSync(options: UseCanvasSyncOptions) {
             case "mermaid_convert":
               if (onMermaidConvert) {
                 onMermaidConvert({
+                  requestId: String(message.requestId ?? ""),
                   mermaidDiagram: String(message.mermaidDiagram ?? ""),
                   config: (message.config as Record<string, unknown>) ?? {},
                 });

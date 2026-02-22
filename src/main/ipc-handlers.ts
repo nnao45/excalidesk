@@ -166,6 +166,9 @@ export function registerIpcHandlers(serverCtx: ServerContext): void {
     const running = serverCtx.canvasServer !== null;
     const port = serverCtx.canvasServer?.getPort() ?? 3100;
     const clients = serverCtx.canvasServer?.getClientCount() ?? 0;
-    return { running, port, clients };
+    // stdio MCP server の起動状態と実行パス
+    const stdioRunning = serverCtx.mcpProcess?.isRunning() ?? false;
+    const mcpServerPath = serverCtx.mcpProcess?.resolveMcpServerPath() ?? null;
+    return { running, port, clients, stdioRunning, mcpServerPath };
   });
 }

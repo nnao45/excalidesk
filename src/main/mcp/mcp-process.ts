@@ -5,52 +5,131 @@ import * as fs from "fs";
 export class MCPProcessManager {
   private process: ChildProcess | null = null;
   private canvasServerPort: number;
+  private restartCount: number = 0;
+  private readonly MAX_RESTARTS = 3;
+  private isShuttingDown: boolean = false;
+  private mcpServerPath: string | null = null;
 
   constructor(canvasServerPort: number) {
     this.canvasServerPort = canvasServerPort;
   }
 
+  /**
+   * mcp-server.js のパスを解決する。
+   * dev ビルド (out/mcp-server.js) と Electron パッケージ版 (resources/) の両方を探す。
+   */
+  public resolveMcpServerPath(): string | null {
+    if (this.mcpServerPath) return this.mcpServerPath;
+
+    const candidates: string[] = [
+      // electron-vite build: out/main/index.js の 2階層上が out/ -> out/mcp-server.js
+      path.join(__dirname, "../../mcp-server.js"),
+      // 同一ディレクトリ (alternative layout)
+      path.join(__dirname, "../mcp-server.js"),
+      // Electron production (asar パッケージ外の resources/)
+      ...(process.resourcesPath
+        ? [path.join(process.resourcesPath, "mcp-server.js")]
+        : []),
+    ];
+
+    for (const candidate of candidates) {
+      if (fs.existsSync(candidate)) {
+        this.mcpServerPath = candidate;
+        return candidate;
+      }
+    }
+    return null;
+  }
+
   public start(): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
-        // In a full implementation, this would spawn the actual MCP server
-        // For now, we create a placeholder that logs the intent
-        console.log(
-          `MCP Server would connect to Canvas Server at http://localhost:${this.canvasServerPort}`
-        );
+        const serverPath = this.resolveMcpServerPath();
 
-        // TODO: Implement actual MCP server spawn
-        // Example:
-        // const mcpServerPath = path.join(__dirname, 'mcp-server.js');
-        // this.process = spawn('node', [mcpServerPath], {
-        //   stdio: ['pipe', 'pipe', 'pipe'],
-        //   env: {
-        //     ...process.env,
-        //     CANVAS_SERVER_URL: `http://localhost:${this.canvasServerPort}`
-        //   }
-        // });
+        if (!serverPath) {
+          // mcp-server.js が存在しない場合はスキップ (Canvas Server の Streamable HTTP で代替可能)
+          console.log(
+            "[MCPProcessManager] mcp-server.js not found. " +
+              `Run "npm run build:mcp" to enable stdio transport. ` +
+              `HTTP transport is available at http://localhost:${this.canvasServerPort}/mcp`
+          );
+          resolve();
+          return;
+        }
 
-        // For now, we just resolve immediately
+        console.log(`[MCPProcessManager] Spawning stdio MCP server: ${serverPath}`);
+        this.isShuttingDown = false;
+        this.restartCount = 0;
+        this.spawnProcess(serverPath);
+
         resolve();
-
-        // In the full implementation, you would:
-        // 1. Spawn the MCP server process
-        // 2. Setup stdio communication
-        // 3. Handle process events (exit, error)
-        // 4. Implement the 26 MCP tools that call the Canvas Server REST API
       } catch (err) {
         reject(err);
       }
     });
   }
 
+  private spawnProcess(serverPath: string): void {
+    this.process = spawn("node", [serverPath], {
+      // stdio: MCP JSON-RPC は stdin/stdout 経由。stderr はログ出力
+      stdio: ["pipe", "pipe", "pipe"],
+      env: {
+        ...process.env,
+        CANVAS_SERVER_URL: `http://localhost:${this.canvasServerPort}`,
+        ENABLE_CANVAS_SYNC: "true",
+        // ANSI カラーコードを無効化 (JSON パースを壊さないため)
+        NODE_DISABLE_COLORS: "1",
+        NO_COLOR: "1",
+      },
+    });
+
+    this.process.stdout?.on("data", (data: Buffer) => {
+      // stdout は MCP JSON-RPC プロトコル用 — 通常は外部クライアントが読む
+      const text = data.toString().trim();
+      if (text) console.log(`[MCP stdio stdout] ${text}`);
+    });
+
+    this.process.stderr?.on("data", (data: Buffer) => {
+      const text = data.toString().trim();
+      if (text) console.error(`[MCP stdio stderr] ${text}`);
+    });
+
+    this.process.on("exit", (code, signal) => {
+      console.log(
+        `[MCPProcessManager] Process exited (code=${code}, signal=${signal})`
+      );
+      this.process = null;
+
+      if (!this.isShuttingDown && this.restartCount < this.MAX_RESTARTS) {
+        this.restartCount++;
+        console.log(
+          `[MCPProcessManager] Restarting (attempt ${this.restartCount}/${this.MAX_RESTARTS}) in 2s...`
+        );
+        setTimeout(() => {
+          if (!this.isShuttingDown) {
+            this.spawnProcess(serverPath);
+          }
+        }, 2000);
+      } else if (!this.isShuttingDown) {
+        console.error(
+          `[MCPProcessManager] Max restarts (${this.MAX_RESTARTS}) reached. stdio transport disabled.`
+        );
+      }
+    });
+
+    this.process.on("error", (err) => {
+      console.error("[MCPProcessManager] Process error:", err);
+    });
+  }
+
   public stop(): Promise<void> {
     return new Promise((resolve) => {
+      this.isShuttingDown = true;
       if (this.process) {
-        this.process.kill();
+        this.process.kill("SIGTERM");
         this.process = null;
       }
-      console.log("MCP Server process stopped");
+      console.log("[MCPProcessManager] Stopped");
       resolve();
     });
   }
@@ -59,41 +138,3 @@ export class MCPProcessManager {
     return this.process !== null && !this.process.killed;
   }
 }
-
-// Placeholder for MCP Server implementation
-// In a full implementation, this would be a separate file that:
-// 1. Implements the MCP protocol using @modelcontextprotocol/sdk
-// 2. Exposes 26 tools for canvas manipulation
-// 3. Communicates with the Canvas Server via REST API
-// 4. Uses stdio for MCP communication with AI agents
-
-/*
-Example MCP tools to implement:
-
-1. create_rectangle
-2. create_ellipse
-3. create_diamond
-4. create_arrow
-5. create_line
-6. create_text
-7. create_image
-8. update_element
-9. delete_element
-10. get_element
-11. list_elements
-12. move_element
-13. resize_element
-14. rotate_element
-15. change_color
-16. change_stroke
-17. change_fill
-18. group_elements
-19. ungroup_elements
-20. duplicate_element
-21. clear_canvas
-22. get_canvas_state
-23. create_from_mermaid
-24. export_canvas
-25. import_canvas
-26. get_snapshot
-*/

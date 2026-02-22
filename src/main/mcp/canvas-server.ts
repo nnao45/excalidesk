@@ -33,6 +33,12 @@ interface PendingViewport {
   timeout: ReturnType<typeof setTimeout>;
 }
 
+interface PendingMermaidConversion {
+  resolve: (data: { elements: ServerElement[] }) => void;
+  reject: (error: Error) => void;
+  timeout: ReturnType<typeof setTimeout>;
+}
+
 export class CanvasServer {
   private app: express.Application;
   private server: Server | null = null;
@@ -44,6 +50,7 @@ export class CanvasServer {
   private snapshots: Map<string, Snapshot> = new Map();
   private pendingExports: Map<string, PendingExport> = new Map();
   private pendingViewports: Map<string, PendingViewport> = new Map();
+  private pendingMermaidConversions: Map<string, PendingMermaidConversion> = new Map();
 
   constructor(port: number = 3100) {
     this.port = port;
@@ -242,11 +249,14 @@ export class CanvasServer {
           version: 1,
         };
 
-        if (
-          (element.type === "arrow" || element.type === "line") &&
-          ((element as any).start || (element as any).end)
-        ) {
-          this.resolveArrowBindings([element]);
+        if (element.type === "arrow" || element.type === "line") {
+          if ((element as any).start || (element as any).end) {
+            this.resolveArrowBindings([element]);
+          }
+          // arrow/line は points が必須 — start/end 解決後もまだ未設定ならデフォルト補完
+          if (!element.points) {
+            element.points = [[0, 0], [100, 0]];
+          }
         }
 
         this.elements.set(id, element);
@@ -326,12 +336,52 @@ export class CanvasServer {
     this.app.get("/api/elements/search", (req: Request, res: Response) => {
       try {
         const query = req.query;
+        // 単一タイプフィルタ
         const type = query.type as string | undefined;
+        // 複数タイプフィルタ (カンマ区切り)
+        const typesRaw = query.types as string | undefined;
+        const typeSet = typesRaw ? new Set(typesRaw.split(",").map((t) => t.trim())) : null;
+        // テキスト部分一致
+        const textContains = query.textContains as string | undefined;
+        // サイズ範囲フィルタ
+        const minWidth = query.minWidth !== undefined ? Number(query.minWidth) : undefined;
+        const maxWidth = query.maxWidth !== undefined ? Number(query.maxWidth) : undefined;
+        const minHeight = query.minHeight !== undefined ? Number(query.minHeight) : undefined;
+        const maxHeight = query.maxHeight !== undefined ? Number(query.maxHeight) : undefined;
+        // カラーフィルタ (完全一致)
+        const strokeColor = query.strokeColor as string | undefined;
+        const backgroundColor = query.backgroundColor as string | undefined;
+
+        // 新フィルタキーは特別扱い (後の汎用マッチから除外)
+        const SPECIAL_KEYS = new Set([
+          "type", "types", "textContains",
+          "minWidth", "maxWidth", "minHeight", "maxHeight",
+          "strokeColor", "backgroundColor",
+        ]);
 
         const results = Array.from(this.elements.values()).filter((el) => {
+          // 単一タイプ
           if (type && el.type !== type) return false;
+          // 複数タイプ
+          if (typeSet && !typeSet.has(el.type)) return false;
+          // サイズ範囲
+          if (minWidth !== undefined && (el.width ?? 0) < minWidth) return false;
+          if (maxWidth !== undefined && (el.width ?? 0) > maxWidth) return false;
+          if (minHeight !== undefined && (el.height ?? 0) < minHeight) return false;
+          if (maxHeight !== undefined && (el.height ?? 0) > maxHeight) return false;
+          // カラー
+          if (strokeColor && el.strokeColor !== strokeColor) return false;
+          if (backgroundColor && el.backgroundColor !== backgroundColor) return false;
+          // テキスト部分一致
+          if (textContains) {
+            const labelText = (el as any).label?.text ?? "";
+            const directText = el.text ?? "";
+            const combined = (directText + " " + labelText).toLowerCase();
+            if (!combined.includes(textContains.toLowerCase())) return false;
+          }
+          // 汎用完全一致フィルタ (特別キー以外)
           for (const [key, value] of Object.entries(query)) {
-            if (key === "type") continue;
+            if (SPECIAL_KEYS.has(key)) continue;
             const elValue = (el as any)[key];
             if (elValue === undefined) return false;
             if (String(elValue) !== String(value)) return false;
@@ -377,6 +427,13 @@ export class CanvasServer {
 
         this.resolveArrowBindings(createdElements);
 
+        // arrow/line は points が必須 — start/end なし or 解決後も未設定のものを補完
+        for (const el of createdElements) {
+          if ((el.type === "arrow" || el.type === "line") && !el.points) {
+            el.points = [[0, 0], [100, 0]];
+          }
+        }
+
         createdElements.forEach((el) => this.elements.set(el.id, el));
         this.broadcast({ type: "elements_batch_created", elements: createdElements });
         this.broadcastCanvasSync();
@@ -402,25 +459,80 @@ export class CanvasServer {
           });
         }
 
+        // Task #1: フロントエンド未接続チェック (即座にエラー返却)
+        if (this.clients.size === 0) {
+          return res.status(503).json({
+            success: false,
+            error: "フロントエンドが接続されていません。excalidesk アプリを起動してキャンバスを開いてください。",
+          });
+        }
+
+        // Task #2: ポーリング機構 — requestId を生成して変換完了を待つ
+        const requestId = this.generateId();
+        const conversionPromise = new Promise<{ elements: ServerElement[] }>((resolve, reject) => {
+          const timeout = setTimeout(() => {
+            this.pendingMermaidConversions.delete(requestId);
+            reject(new Error("Mermaid conversion timed out after 10 seconds"));
+          }, 10000);
+          this.pendingMermaidConversions.set(requestId, { resolve, reject, timeout });
+        });
+
         this.broadcast({
           type: "mermaid_convert",
+          requestId,
           mermaidDiagram,
           config: config || {},
           timestamp: new Date().toISOString(),
         });
 
-        res.json({
-          success: true,
-          mermaidDiagram,
-          config: config || {},
-          message: "Mermaid diagram sent to frontend for conversion.",
-        });
+        conversionPromise
+          .then((result) => {
+            // 変換された要素をサーバー側にも反映して同期
+            result.elements.forEach((el) => this.elements.set(el.id, el));
+            this.broadcastCanvasSync();
+            res.json({
+              success: true,
+              mermaidDiagram,
+              elements: result.elements,
+              count: result.elements.length,
+              message: "Mermaid diagram converted successfully.",
+            });
+          })
+          .catch((error) => {
+            res.status(500).json({ success: false, error: (error as Error).message });
+          });
       } catch (error) {
         logger.error("Error processing Mermaid diagram:", error as Error);
         res.status(400).json({
           success: false,
           error: (error as Error).message,
         });
+      }
+    });
+
+    // Task #2: フロントエンドから Mermaid 変換結果を受け取るコールバック
+    this.app.post("/api/elements/from-mermaid/result", (req: Request, res: Response) => {
+      try {
+        const { requestId, elements, error } = req.body;
+        if (!requestId) {
+          return res.status(400).json({ success: false, error: "requestId is required" });
+        }
+        const pending = this.pendingMermaidConversions.get(requestId);
+        if (!pending) {
+          // 既にタイムアウト済み — 無視
+          return res.json({ success: true });
+        }
+        clearTimeout(pending.timeout);
+        this.pendingMermaidConversions.delete(requestId);
+        if (error) {
+          pending.reject(new Error(error));
+        } else {
+          pending.resolve({ elements: elements || [] });
+        }
+        res.json({ success: true });
+      } catch (error) {
+        logger.error("Error processing Mermaid result:", error as Error);
+        res.status(500).json({ success: false, error: (error as Error).message });
       }
     });
 
