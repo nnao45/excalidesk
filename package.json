@@ -68,7 +68,6 @@
       "target": [
         "nsis"
       ]
-    },
-    "publish": "never"
+    }
   }
 }
