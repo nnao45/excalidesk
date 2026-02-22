@@ -4,7 +4,6 @@
 process.env.NODE_DISABLE_COLORS = '1';
 process.env.NO_COLOR = '1';
 
-import { fileURLToPath } from "url";
 import { deflateSync } from 'zlib';
 import { webcrypto } from 'crypto';
 import { TextEncoder } from 'util';
@@ -2225,7 +2224,7 @@ if (process.env.DEBUG === 'true') {
   logger.debug('Debug mode enabled');
 }
 
-if (fileURLToPath(import.meta.url) === process.argv[1]) {
+if (process.argv[1] && /mcp-server\.(t|j)s$/.test(process.argv[1])) {
   runServer().catch(error => {
     logger.error('Failed to start server:', error);
     process.exit(1);
