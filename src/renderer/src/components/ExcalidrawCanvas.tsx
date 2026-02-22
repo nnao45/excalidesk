@@ -54,7 +54,20 @@ export function ExcalidrawCanvas({ selectedFile, mcpEnabled = false, mcpPort = 3
   } | null>(null);
   const excalidrawAPIRef = useRef<ExcalidrawImperativeAPI | null>(null);
   const isSyncingRef = useRef(false);
+  const sendSyncRef = useRef<
+    (state: { elements: readonly ExcalidrawElement[]; appState: AppState; files: BinaryFiles }) => void
+  >(() => {});
   const { readCanvas, saveCanvas } = useElectronFS();
+
+  const sanitizeAppState = useCallback((state: Partial<AppState>) => {
+    return {
+      viewBackgroundColor: state.viewBackgroundColor ?? "#ffffff",
+      gridSize: state.gridSize ?? null,
+      scrollX: state.scrollX ?? 0,
+      scrollY: state.scrollY ?? 0,
+      zoom: state.zoom ?? { value: 1 },
+    } as Partial<AppState>;
+  }, []);
 
   const handleExcalidrawAPI = useCallback((api: ExcalidrawImperativeAPI) => {
     excalidrawAPIRef.current = api;
@@ -66,13 +79,14 @@ export function ExcalidrawCanvas({ selectedFile, mcpEnabled = false, mcpPort = 3
     onSync: useCallback((state) => {
       if (!excalidrawAPIRef.current) return;
       isSyncingRef.current = true;
+      const nextAppState = sanitizeAppState(state.appState);
       excalidrawAPIRef.current.updateScene({
         elements: state.elements,
-        appState: state.appState as Partial<AppState>,
+        appState: nextAppState,
         commitToHistory: false,
       });
       setTimeout(() => { isSyncingRef.current = false; }, 100);
-    }, []),
+    }, [sanitizeAppState]),
     onExportImageRequest: useCallback(async ({ requestId, format, background }) => {
       if (!excalidrawAPIRef.current) return;
       try {
@@ -179,12 +193,16 @@ export function ExcalidrawCanvas({ selectedFile, mcpEnabled = false, mcpPort = 3
         });
         const appState = api.getAppState();
         const files = api.getFiles();
-        sendSync({ elements, appState, files });
+        sendSyncRef.current({ elements, appState: sanitizeAppState(appState) as AppState, files });
       } catch (err) {
         console.error("Mermaid conversion failed:", err);
       }
-    }, [sendSync]),
+    }, [sanitizeAppState]),
   });
+
+  useEffect(() => {
+    sendSyncRef.current = sendSync;
+  }, [sendSync]);
 
   const forceSave = useCallback(async () => {
     if (!currentFileRef.current || !lastDataRef.current) return;
@@ -322,11 +340,11 @@ export function ExcalidrawCanvas({ selectedFile, mcpEnabled = false, mcpPort = 3
 
         // Sync to Canvas Server (skip if update came from server to avoid echo)
         if (!isSyncingRef.current) {
-          sendSync({ elements, appState, files });
+          sendSync({ elements, appState: sanitizeAppState(appState) as AppState, files });
         }
       }, 1000);
     },
-    [selectedFile, saveCanvas, sendSync]
+    [selectedFile, saveCanvas, sendSync, sanitizeAppState]
   );
 
   if (!selectedFile) {
