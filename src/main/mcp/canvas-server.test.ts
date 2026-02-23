@@ -779,6 +779,74 @@ describe("CanvasServer", () => {
   });
 
   // ────────────────────────────────────────────────────────────────────────
+  // 要素正規化 (normalizeElementForExcalidraw) 回帰テスト
+  // angle などの必須フィールドが欠如すると Excalidraw が要素を描画しないバグを防ぐ
+  // ────────────────────────────────────────────────────────────────────────
+  describe("要素正規化 (normalizeElementForExcalidraw)", () => {
+    it("POST /api/elements で作成した rectangle が angle: 0 を持つ", async () => {
+      const res = await request(BASE_URL)
+        .post("/api/elements")
+        .send({ type: "rectangle", x: 100, y: 100, width: 200, height: 100 });
+      expect(res.status).toBe(200);
+      const el = res.body.element;
+      expect(el.angle).toBe(0);
+    });
+
+    it("POST /api/elements で作成した要素が isDeleted=false, groupIds=[], boundElements=null を持つ", async () => {
+      const res = await request(BASE_URL)
+        .post("/api/elements")
+        .send({ type: "ellipse", x: 0, y: 0 });
+      expect(res.status).toBe(200);
+      const el = res.body.element;
+      expect(el.isDeleted).toBe(false);
+      expect(Array.isArray(el.groupIds)).toBe(true);
+      expect(el.groupIds).toHaveLength(0);
+      expect(el.boundElements).toBeNull();
+    });
+
+    it("POST /api/elements/batch で全要素が angle, isDeleted, groupIds を持つ", async () => {
+      const res = await request(BASE_URL)
+        .post("/api/elements/batch")
+        .send({
+          elements: [
+            { type: "rectangle", x: 0, y: 0, width: 100, height: 50 },
+            { type: "ellipse", x: 200, y: 0, width: 80, height: 80 },
+            { type: "diamond", x: 400, y: 0, width: 60, height: 60 },
+          ],
+        });
+      expect(res.status).toBe(200);
+      for (const el of res.body.elements) {
+        expect(typeof el.angle).toBe("number");
+        expect(el.angle).toBe(0);
+        expect(el.isDeleted).toBe(false);
+        expect(Array.isArray(el.groupIds)).toBe(true);
+      }
+    });
+
+    it("PUT /api/elements/:id では既存の angle が上書きされない (0 が保持される)", async () => {
+      const create = await request(BASE_URL)
+        .post("/api/elements")
+        .send({ type: "rectangle", x: 0, y: 0, width: 100, height: 50 });
+      const id: string = create.body.element.id;
+      expect(create.body.element.angle).toBe(0);
+
+      const update = await request(BASE_URL)
+        .put(`/api/elements/${id}`)
+        .send({ x: 200 }); // angle を渡さない — 既存の値が保持されるべき
+      expect(update.status).toBe(200);
+      expect(update.body.element.angle).toBe(0);
+    });
+
+    it("POST /api/elements で明示的に angle を渡すとその値が使われる", async () => {
+      const res = await request(BASE_URL)
+        .post("/api/elements")
+        .send({ type: "rectangle", x: 0, y: 0, width: 100, height: 50, angle: 1.5708 });
+      expect(res.status).toBe(200);
+      expect(res.body.element.angle).toBeCloseTo(1.5708);
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
   // Public API
   // ────────────────────────────────────────────────────────────────────────
   describe("CanvasServer public API", () => {

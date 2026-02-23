@@ -180,6 +180,7 @@ export class CanvasServer {
       y: z.number(),
       width: z.number().optional(),
       height: z.number().optional(),
+      angle: z.number().optional(),
       backgroundColor: z.string().optional(),
       strokeColor: z.string().optional(),
       strokeWidth: z.number().optional(),
@@ -259,13 +260,15 @@ export class CanvasServer {
           }
         }
 
-        this.elements.set(id, element);
-        this.broadcast({ type: "element_created", element });
+        // Excalidraw 必須フィールド (angle など) を補完して描画バグを防ぐ
+        const normalizedElement = this.normalizeElementForExcalidraw(element);
+        this.elements.set(id, normalizedElement);
+        this.broadcast({ type: "element_created", element: normalizedElement });
         this.broadcastCanvasSync();
 
         res.json({
           success: true,
-          element,
+          element: normalizedElement,
         });
       } catch (error) {
         logger.error("Error creating element:", error as Error);
@@ -434,14 +437,18 @@ export class CanvasServer {
           }
         }
 
-        createdElements.forEach((el) => this.elements.set(el.id, el));
-        this.broadcast({ type: "elements_batch_created", elements: createdElements });
+        // Excalidraw 必須フィールド (angle など) を補完して描画バグを防ぐ
+        const normalizedElements = createdElements.map((el) =>
+          this.normalizeElementForExcalidraw(el)
+        );
+        normalizedElements.forEach((el) => this.elements.set(el.id, el));
+        this.broadcast({ type: "elements_batch_created", elements: normalizedElements });
         this.broadcastCanvasSync();
 
         res.json({
           success: true,
-          elements: createdElements,
-          count: createdElements.length,
+          elements: normalizedElements,
+          count: normalizedElements.length,
         });
       } catch (error) {
         logger.error("Error batch creating elements:", error as Error);
@@ -781,6 +788,35 @@ export class CanvasServer {
       versionNonce: Math.floor(Math.random() * 1e9),
       updated: Date.now(),
     };
+  }
+
+  /**
+   * Excalidraw が描画に必須とするフィールドをデフォルト値で補完する。
+   * `angle` が undefined だと Math.cos(undefined) = NaN → バウンディングボックスが NaN →
+   * isElementInViewport が false → 要素が見えなくなるバグを防ぐ。
+   */
+  private normalizeElementForExcalidraw(el: ServerElement): ServerElement {
+    const a = el as any;
+    return {
+      ...el,
+      angle: a.angle ?? 0,
+      strokeColor: el.strokeColor ?? "#1e1e1e",
+      backgroundColor: el.backgroundColor ?? "transparent",
+      fillStyle: el.fillStyle ?? "hachure",
+      strokeWidth: el.strokeWidth ?? 2,
+      strokeStyle: el.strokeStyle ?? "solid",
+      roughness: el.roughness ?? 1,
+      opacity: el.opacity ?? 100,
+      groupIds: el.groupIds ?? [],
+      isDeleted: a.isDeleted ?? false,
+      boundElements: a.boundElements ?? null,
+      link: a.link ?? null,
+      locked: el.locked ?? false,
+      seed: a.seed ?? Math.floor(Math.random() * 2147483647),
+      versionNonce: a.versionNonce ?? Math.floor(Math.random() * 2147483647),
+      updated: a.updated ?? Date.now(),
+      frameId: a.frameId ?? null,
+    } as ServerElement;
   }
 
   private addElement(element: ExcalidrawElement): void {

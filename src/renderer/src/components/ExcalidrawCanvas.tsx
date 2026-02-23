@@ -79,14 +79,14 @@ export function ExcalidrawCanvas({ selectedFile, mcpEnabled = false, mcpPort = 3
     onSync: useCallback((state) => {
       if (!excalidrawAPIRef.current) return;
       isSyncingRef.current = true;
-      const nextAppState = sanitizeAppState(state.appState);
       excalidrawAPIRef.current.updateScene({
         elements: state.elements,
-        appState: nextAppState,
+        // appState は渡さない — sanitizeAppState が scrollX:0/scrollY:0/zoom:{value:1} を
+        // デフォルト設定するため、canvas_sync のたびにビューポートが原点にジャンプするバグを防ぐ
         commitToHistory: false,
       });
       setTimeout(() => { isSyncingRef.current = false; }, 100);
-    }, [sanitizeAppState]),
+    }, []),
     onExportImageRequest: useCallback(async ({ requestId, format, background }) => {
       if (!excalidrawAPIRef.current) return;
       try {
