@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { Pencil, Folder, RefreshCw, File, ChevronRight, ChevronDown, FileText, Image, Video, Music, Code, Database, Archive, FileJson, Table, BookOpen, Newspaper, Palette, Briefcase, ShoppingCart, Heart, Star, Zap, Trophy, Target, Flag, Bell, Calendar, Clock, Mail, MessageSquare, Phone, User, Users, Home, Building, Globe, Map, Settings as SettingsIcon, Wrench, Package, Box, Gift, Coffee, Lightbulb, Flame, Sparkles, Search, type LucideIcon } from "lucide-react";
 import { FileItem, ContextMenuState, TrashItem } from "../types";
 import { useElectronFS } from "../hooks/useElectronFS";
+import { rpc } from "../rpc";
 import { Dialog, ConfirmDialog } from "./Dialog";
 import { IconPicker } from "./IconPicker";
 
@@ -913,7 +914,7 @@ export function Sidebar({
 
   const handleChangeBaseDir = useCallback(async () => {
     try {
-      const selected = await window.electronAPI.showOpenDialog();
+      const selected = await rpc.request.showOpenDialog({}) as string | null;
 
       if (selected) {
         alert(`選択されたフォルダ: ${selected}\n\n※現在、この機能は実装中です。`);

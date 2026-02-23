@@ -1,75 +1,80 @@
 import { useCallback } from "react";
-import { FileItem, TrashItem } from "../types";
+import type { FileItem, TrashItem } from "../types";
+import { rpc } from "../rpc";
 
 export function useElectronFS() {
   const listDir = useCallback((path: string = ""): Promise<FileItem[]> => {
-    return window.electronAPI.listDir(path);
+    return rpc.request.listDir({ path }) as Promise<FileItem[]>;
   }, []);
 
   const createFolder = useCallback((path: string): Promise<void> => {
-    return window.electronAPI.createFolder(path);
+    return rpc.request.createFolder({ path }) as Promise<void>;
   }, []);
 
   const createCanvas = useCallback((path: string): Promise<void> => {
-    return window.electronAPI.createCanvas(path);
+    return rpc.request.createCanvas({ path }) as Promise<void>;
   }, []);
 
   const deleteItem = useCallback((path: string): Promise<void> => {
-    return window.electronAPI.deleteItem(path);
+    return rpc.request.deleteItem({ path }) as Promise<void>;
   }, []);
 
   const renameItem = useCallback(
     (oldPath: string, newPath: string): Promise<void> => {
-      return window.electronAPI.renameItem(oldPath, newPath);
+      return rpc.request.renameItem({ oldPath, newPath }) as Promise<void>;
     },
     []
   );
 
   const readCanvas = useCallback((path: string): Promise<string> => {
-    return window.electronAPI.readCanvas(path);
+    return rpc.request.readCanvas({ path }) as Promise<string>;
   }, []);
 
   const saveCanvas = useCallback(
     (path: string, content: string): Promise<void> => {
-      return window.electronAPI.saveCanvas(path, content);
+      return rpc.request.saveCanvas({ path, content }) as Promise<void>;
     },
     []
   );
 
   const copyCanvas = useCallback(
     (sourcePath: string, destPath: string): Promise<void> => {
-      return window.electronAPI.copyCanvas(sourcePath, destPath);
+      return rpc.request.copyCanvas({ sourcePath, destPath }) as Promise<void>;
     },
     []
   );
 
   const getBaseDirectory = useCallback((): Promise<string> => {
-    return window.electronAPI.getBaseDirectory();
+    return rpc.request.getBaseDirectory({}) as Promise<string>;
   }, []);
 
   const trashItem = useCallback((path: string): Promise<void> => {
-    return window.electronAPI.trashItem(path);
+    return rpc.request.trashItem({ path }) as Promise<void>;
   }, []);
 
   const listTrash = useCallback((): Promise<TrashItem[]> => {
-    return window.electronAPI.listTrash();
+    return rpc.request.listTrash({}) as Promise<TrashItem[]>;
   }, []);
 
   const restoreItem = useCallback((trashPath: string): Promise<void> => {
-    return window.electronAPI.restoreItem(trashPath);
+    return rpc.request.restoreItem({ trashPath }) as Promise<void>;
   }, []);
 
   const deletePermanently = useCallback((trashPath: string): Promise<void> => {
-    return window.electronAPI.deletePermanently(trashPath);
+    return rpc.request.deletePermanently({ trashPath }) as Promise<void>;
   }, []);
 
   const emptyTrash = useCallback((): Promise<void> => {
-    return window.electronAPI.emptyTrash();
+    return rpc.request.emptyTrash({}) as Promise<void>;
   }, []);
 
   const setItemIcon = useCallback(
     (path: string, icon: string, color?: string): Promise<void> => {
-      return window.electronAPI.setItemIcon(path, icon, color || null);
+      return rpc.request.setItemIcon({
+        path,
+        icon,
+        color: color ?? null,
+      }) as Promise<void>;
     },
     []
   );
