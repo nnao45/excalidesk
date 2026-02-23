@@ -378,7 +378,7 @@ test.describe.serial("MCP render patterns (Electron)", () => {
       },
       90
     );
-    expect(res.content?.[0]?.text ?? "").toContain("Mermaid diagram sent");
+    expect(res.content?.[0]?.text ?? "").toContain("Mermaid diagram converted successfully");
   });
 
   test("set_viewport scrollToContent", async () => {
