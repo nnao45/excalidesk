@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Copy, Check, Play, Square, X } from "lucide-react";
 import type { MCPStatus } from "../types/electron.d";
+import { rpc } from "../rpc";
 
 interface MCPStatusPanelProps {
   onClose: () => void;
@@ -18,7 +19,7 @@ export function MCPStatusPanel({ onClose, onStatusChange }: MCPStatusPanelProps)
 
   const fetchStatus = useCallback(async () => {
     try {
-      const s = await window.electronAPI.mcpStatus();
+      const s = await rpc.request.mcpStatus({}) as MCPStatus;
       setStatus(s);
       onStatusChange(s.running, s.port);
       if (!s.running) {
@@ -58,7 +59,7 @@ export function MCPStatusPanel({ onClose, onStatusChange }: MCPStatusPanelProps)
       !isNaN(parsed) && parsed >= 1 && parsed <= 65535 ? parsed : 3100;
     setIsStarting(true);
     try {
-      await window.electronAPI.mcpStart(validPort);
+      await rpc.request.mcpStart({ port: validPort });
       await fetchStatus();
     } catch (err) {
       alert(`MCPサーバーの起動に失敗しました: ${err}`);
@@ -70,7 +71,7 @@ export function MCPStatusPanel({ onClose, onStatusChange }: MCPStatusPanelProps)
   const handleStop = useCallback(async () => {
     setIsStopping(true);
     try {
-      await window.electronAPI.mcpStop();
+      await rpc.request.mcpStop({});
       await fetchStatus();
     } catch (err) {
       alert(`MCPサーバーの停止に失敗しました: ${err}`);
